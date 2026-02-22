@@ -1,0 +1,5 @@
+{
+  "authorized_users": [
+    {"id": 123456789, "name": "Your Name", "note": "admin"}
+  ]
+}
