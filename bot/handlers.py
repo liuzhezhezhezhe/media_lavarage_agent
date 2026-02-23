@@ -5,6 +5,9 @@ from collections import deque
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from time import monotonic
+from typing import Awaitable, Callable, TypeVar
+
+import httpx
 from telegram import Update
 from telegram.constants import ChatAction, ParseMode
 from telegram.ext import (
@@ -41,6 +44,10 @@ _GENERIC_FILE_ERR = "❌ File parsing failed. Please try again later."
 _GENERIC_CHAT_ERR = "❌ Chat failed temporarily. Please try again later."
 
 _rate_limit_buckets: dict[tuple[int, str], deque[float]] = {}
+_NETWORK_RETRY_ATTEMPTS = 3
+_NETWORK_RETRY_BASE_DELAY = 1.0
+
+_RetryT = TypeVar("_RetryT")
 
 
 @asynccontextmanager
@@ -91,6 +98,49 @@ def _is_auth(update: Update) -> bool:
     return auth.is_authorized(_uid(update))
 
 
+def _is_retryable_network_error(exc: Exception) -> bool:
+    return isinstance(
+        exc,
+        (
+            httpx.ConnectError,
+            httpx.ConnectTimeout,
+            httpx.ReadTimeout,
+            httpx.WriteTimeout,
+            httpx.RemoteProtocolError,
+        ),
+    )
+
+
+async def _with_network_retry(
+    operation: Callable[[], Awaitable[_RetryT]],
+    op_name: str,
+    attempts: int = _NETWORK_RETRY_ATTEMPTS,
+    base_delay: float = _NETWORK_RETRY_BASE_DELAY,
+) -> _RetryT:
+    last_exc: Exception | None = None
+    for idx in range(1, attempts + 1):
+        try:
+            return await operation()
+        except Exception as exc:
+            if not _is_retryable_network_error(exc) or idx >= attempts:
+                raise
+            last_exc = exc
+            delay = base_delay * (2 ** (idx - 1))
+            logger.warning(
+                "%s transient network error (%s), retrying %d/%d in %.1fs",
+                op_name,
+                exc.__class__.__name__,
+                idx,
+                attempts,
+                delay,
+            )
+            await asyncio.sleep(delay)
+
+    if last_exc:
+        raise last_exc
+    raise RuntimeError(f"{op_name} failed without exception")
+
+
 def _check_rate_limit(user_id: int, action: str, limit: int) -> tuple[bool, int]:
     """Return (allowed, retry_after_seconds) for user-action pair."""
     now = monotonic()
@@ -132,6 +182,7 @@ async def _run_pipeline(
 ) -> bool:
     """Core pipeline: analyze → route → rewrite → save → send."""
     status_msg = await update.message.reply_text("🔍 Analyzing, please wait…")
+    status_deleted = False
 
     try:
         llm = get_llm_client()
@@ -139,7 +190,10 @@ async def _run_pipeline(
 
         # LLM call #1: analyze
         async with _typing(context, cid):
-            analysis = await analyze(content, llm)
+            analysis = await _with_network_retry(
+                lambda: analyze(content, llm),
+                "Analyze call",
+            )
 
         # Route: decide candidate platforms by type/novelty
         candidate_platforms = route(analysis)
@@ -211,6 +265,7 @@ async def _run_pipeline(
         if not platforms:
             thought_id = db.save_thought(user_id, content, source, analysis)
             await status_msg.delete()
+            status_deleted = True
             analysis_msg = formatter.format_analysis(analysis, thought_id)
             await update.message.reply_text(analysis_msg, parse_mode=ParseMode.MARKDOWN_V2)
             return True
@@ -228,7 +283,10 @@ async def _run_pipeline(
                 platform_analysis["key_points"] = platform_assessment.get("key_points") or platform_analysis.get("key_points", [])
 
             async with _typing(context, cid):
-                platform_outputs[platform] = await rewrite(content, platform, platform_analysis, llm)
+                platform_outputs[platform] = await _with_network_retry(
+                    lambda: rewrite(content, platform, platform_analysis, llm),
+                    f"Rewrite call ({platform})",
+                )
 
         # Save to DB
         thought_id = db.save_thought(user_id, content, source, analysis)
@@ -237,6 +295,7 @@ async def _run_pipeline(
 
         # Delete status message
         await status_msg.delete()
+        status_deleted = True
 
         # Send analysis message
         analysis_msg = formatter.format_analysis(analysis, thought_id)
@@ -252,7 +311,13 @@ async def _run_pipeline(
 
     except Exception as exc:
         logger.exception("Pipeline error")
-        await status_msg.edit_text(_GENERIC_PIPELINE_ERR)
+        try:
+            if not status_deleted:
+                await status_msg.edit_text(_GENERIC_PIPELINE_ERR)
+            else:
+                await update.message.reply_text(_GENERIC_PIPELINE_ERR)
+        except Exception:
+            pass
         return False
 
 
@@ -613,7 +678,10 @@ async def chat_handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         llm = get_llm_client()
         async with _typing(context, cid):
-            response = await llm.chat(chat_prompts.SYSTEM, history)
+            response = await _with_network_retry(
+                lambda: llm.chat(chat_prompts.SYSTEM, history),
+                "Chat call",
+            )
         reply = response.content
     except Exception as exc:
         logger.exception("Chat LLM error")

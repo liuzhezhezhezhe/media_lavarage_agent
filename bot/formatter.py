@@ -63,7 +63,7 @@ def format_analysis(analysis: dict, thought_id: int) -> str:
             reason = str(item.get("reason", "")).strip()
 
             lines.append(
-                f"- *{escape(platform.capitalize())}* {icon} \\| N:{novelty_p}/10 \\| C:{clarity_p}/10 \\| Risk: `{escape(risk_p)}`"
+                f"\\- *{escape(platform.capitalize())}* {icon} \\| N:{novelty_p}/10 \\| C:{clarity_p}/10 \\| Risk: `{escape(risk_p)}`"
             )
             if reason:
                 lines.append(f"  _{escape(reason)}_")
