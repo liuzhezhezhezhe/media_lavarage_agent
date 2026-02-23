@@ -81,6 +81,21 @@ _PLATFORM_ICONS = {
 _MAX_INLINE_CHARS = 3800  # leave headroom below 4096
 
 
+def _trim_dangling_escape(text: str) -> str:
+    """Trim ending backslashes to avoid dangling MarkdownV2 escapes."""
+    if not text:
+        return text
+    slash_count = 0
+    for ch in reversed(text):
+        if ch == "\\":
+            slash_count += 1
+        else:
+            break
+    if slash_count % 2 == 1:
+        return text[:-1]
+    return text
+
+
 def format_platform_output(platform: str, content: str, thought_id: int) -> tuple[str, bool]:
     """
     Returns (message_text, was_truncated).
@@ -102,7 +117,7 @@ def format_platform_output(platform: str, content: str, thought_id: int) -> tupl
 
     # Truncate
     max_content_len = _MAX_INLINE_CHARS - len(header) - 100
-    truncated_content = escaped_content[:max_content_len]
+    truncated_content = _trim_dangling_escape(escaped_content[:max_content_len])
     # Try not to cut mid-word
     last_space = truncated_content.rfind(" ")
     if last_space > max_content_len - 50:
@@ -181,7 +196,12 @@ def _split_message(text: str, max_len: int = 4000) -> list[str]:
     if len(text) <= max_len:
         return [text]
     chunks = []
-    while text:
-        chunks.append(text[:max_len])
-        text = text[max_len:]
+    while len(text) > max_len:
+        chunk = _trim_dangling_escape(text[:max_len])
+        if not chunk:
+            chunk = text[:max_len]
+        chunks.append(chunk)
+        text = text[len(chunk):]
+    if text:
+        chunks.append(text)
     return chunks
