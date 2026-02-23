@@ -66,6 +66,19 @@ def init_db() -> None:
 
 # ── chat_messages ─────────────────────────────────────────────────────────────
 
+def delete_messages_since(user_id: int, chat_id: int, since: str) -> None:
+    """Delete chat messages accumulated since a given ISO timestamp.
+
+    Called when a session is cancelled or switched without /analyze, so that
+    the discarded messages are never picked up by a future /analyze call.
+    """
+    with get_conn() as conn:
+        conn.execute(
+            "DELETE FROM chat_messages WHERE user_id=? AND chat_id=? AND created_at>=?",
+            (user_id, chat_id, since),
+        )
+
+
 def save_chat_message(user_id: int, chat_id: int, message_id: int, content: str) -> None:
     now = datetime.now(timezone.utc).isoformat()
     with get_conn() as conn:

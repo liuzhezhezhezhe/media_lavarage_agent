@@ -23,8 +23,7 @@ from bot.handlers import (
     cmd_history,
     cmd_show,
     handle_plain_message,
-    build_process_conversation,
-    build_chat_conversation,
+    build_conversation,
 )
 
 logging.basicConfig(
@@ -83,9 +82,8 @@ def main() -> None:
         .build()
     )
 
-    # Register ConversationHandlers first (higher priority)
-    app.add_handler(build_chat_conversation())
-    app.add_handler(build_process_conversation())
+    # Register ConversationHandler first (higher priority)
+    app.add_handler(build_conversation())
 
     # Register command handlers
     app.add_handler(CommandHandler("start", cmd_start))

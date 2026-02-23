@@ -2,6 +2,7 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from telegram import Update
 from telegram.constants import ChatAction, ParseMode
 from telegram.ext import (
@@ -430,11 +431,12 @@ async def cmd_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         await _deny(update)
         return ConversationHandler.END
 
+    context.user_data["chat_session_start"] = datetime.now(timezone.utc).isoformat()
     context.user_data["chat_history"] = []
     await update.message.reply_text(
         "💬 Chat mode active. Explore your ideas freely.\n\n"
-        "Messages are saved — use /analyze when you're done to turn this conversation into publishable content.\n"
-        "Use /tag to place a marker. Send /cancel to exit."
+        "Use /analyze when done — it processes the conversation and exits.\n"
+        "Use /tag to mark and exit. Use /cancel to discard and exit."
     )
     return CHATTING
 
@@ -473,92 +475,96 @@ async def chat_handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     return CHATTING
 
 
-async def cmd_chat_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+# ── conversation helpers ──────────────────────────────────────────────────────
+
+def _discard_chat_session(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Delete DB messages accumulated since the chat session started.
+
+    Called on any exit that is NOT /analyze, so discarded messages are never
+    picked up by a future /analyze call.
+    """
+    session_start = context.user_data.pop("chat_session_start", None)
     context.user_data.pop("chat_history", None)
-    await update.message.reply_text(
-        "Exited chat mode.\n"
-        "Messages have been saved — use /analyze to process the conversation."
-    )
+    if session_start:
+        db.delete_messages_since(_uid(update), _cid(update), session_start)
+
+
+# ── universal /cancel ─────────────────────────────────────────────────────────
+
+async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    _discard_chat_session(update, context)
+    await update.message.reply_text("Cancelled.")
     return ConversationHandler.END
 
 
-# ── conversation exit helpers ─────────────────────────────────────────────────
-# PTB consumes updates handled by a ConversationHandler fallback, so the other
-# ConversationHandler's entry point will never see them. For cross-mode commands
-# (/process from chat, /chat from process) we exit the current mode and prompt
-# the user to re-send. For same-direction commands (/tag, /analyze) we execute
-# the handler inline and then end the conversation.
+# ── state-transition handlers ─────────────────────────────────────────────────
 
-async def _chat_exit_tag(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    context.user_data.pop("chat_history", None)
+async def _chat_to_process(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """CHATTING → WAITING_CONTENT: discard chat session, enter process mode."""
+    _discard_chat_session(update, context)
+    return await cmd_process(update, context)
+
+
+async def _process_to_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """WAITING_CONTENT → CHATTING: enter chat mode."""
+    return await cmd_chat(update, context)
+
+
+# ── exit handlers ─────────────────────────────────────────────────────────────
+
+async def _exit_tag_from_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    _discard_chat_session(update, context)
     await cmd_tag(update, context)
     return ConversationHandler.END
 
 
-async def _chat_exit_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def _exit_analyze_from_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    # /analyze is the only exit that keeps the data — do not discard.
+    context.user_data.pop("chat_session_start", None)
     context.user_data.pop("chat_history", None)
     await cmd_analyze(update, context)
     return ConversationHandler.END
 
 
-async def _chat_exit_process(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    context.user_data.pop("chat_history", None)
-    await update.message.reply_text(
-        "Chat mode ended. Send /process to start processing."
-    )
-    return ConversationHandler.END
-
-
-async def _process_exit_tag(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def _exit_tag_from_process(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await cmd_tag(update, context)
     return ConversationHandler.END
 
 
-async def _process_exit_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def _exit_analyze_from_process(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await cmd_analyze(update, context)
-    return ConversationHandler.END
-
-
-async def _process_exit_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text(
-        "Process mode ended. Send /chat to start chat mode."
-    )
     return ConversationHandler.END
 
 
 # ── build ConversationHandler ─────────────────────────────────────────────────
 
-def build_process_conversation() -> ConversationHandler:
+def build_conversation() -> ConversationHandler:
+    """Single ConversationHandler for both /process and /chat modes.
+
+    A unified handler allows direct state switching between modes (/process
+    inside chat enters process mode immediately, and vice versa) and ensures
+    /cancel and /analyze behave consistently regardless of which mode is active.
+    """
     return ConversationHandler(
-        entry_points=[CommandHandler("process", cmd_process)],
+        entry_points=[
+            CommandHandler("process", cmd_process),
+            CommandHandler("chat",    cmd_chat),
+        ],
         states={
             WAITING_CONTENT: [
+                CommandHandler("chat",    _process_to_chat),
+                CommandHandler("tag",     _exit_tag_from_process),
+                CommandHandler("analyze", _exit_analyze_from_process),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, process_text_input),
-                MessageHandler(filters.Document.ALL, process_file_input),
-                MessageHandler(~filters.COMMAND, process_invalid_input),
+                MessageHandler(filters.Document.ALL,            process_file_input),
+                MessageHandler(~filters.COMMAND,                process_invalid_input),
             ],
-        },
-        fallbacks=[
-            CommandHandler("cancel", cmd_cancel),
-            CommandHandler("tag", _process_exit_tag),
-            CommandHandler("analyze", _process_exit_analyze),
-            CommandHandler("chat", _process_exit_chat),
-        ],
-    )
-
-
-def build_chat_conversation() -> ConversationHandler:
-    return ConversationHandler(
-        entry_points=[CommandHandler("chat", cmd_chat)],
-        states={
             CHATTING: [
+                CommandHandler("process", _chat_to_process),
+                CommandHandler("tag",     _exit_tag_from_chat),
+                CommandHandler("analyze", _exit_analyze_from_chat),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, chat_handle_message),
             ],
         },
-        fallbacks=[
-            CommandHandler("cancel", cmd_chat_cancel),
-            CommandHandler("tag", _chat_exit_tag),
-            CommandHandler("analyze", _chat_exit_analyze),
-            CommandHandler("process", _chat_exit_process),
-        ],
+        fallbacks=[CommandHandler("cancel", cmd_cancel)],
     )
