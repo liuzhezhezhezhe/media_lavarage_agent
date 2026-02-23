@@ -434,7 +434,7 @@ async def cmd_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text(
         "💬 Chat mode active. Explore your ideas freely.\n\n"
         "Messages are saved — use /analyze when you're done to turn this conversation into publishable content.\n"
-        "Send /cancel to exit."
+        "Use /tag to place a marker. Send /cancel to exit."
     )
     return CHATTING
 
@@ -482,6 +482,20 @@ async def cmd_chat_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     return ConversationHandler.END
 
 
+async def _chat_exit_tag(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Execute /tag and exit chat mode."""
+    context.user_data.pop("chat_history", None)
+    await cmd_tag(update, context)
+    return ConversationHandler.END
+
+
+async def _chat_exit_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Execute /analyze and exit chat mode."""
+    context.user_data.pop("chat_history", None)
+    await cmd_analyze(update, context)
+    return ConversationHandler.END
+
+
 # ── build ConversationHandler ─────────────────────────────────────────────────
 
 def build_process_conversation() -> ConversationHandler:
@@ -506,5 +520,9 @@ def build_chat_conversation() -> ConversationHandler:
                 MessageHandler(filters.TEXT & ~filters.COMMAND, chat_handle_message),
             ],
         },
-        fallbacks=[CommandHandler("cancel", cmd_chat_cancel)],
+        fallbacks=[
+            CommandHandler("cancel", cmd_chat_cancel),
+            CommandHandler("tag", _chat_exit_tag),
+            CommandHandler("analyze", _chat_exit_analyze),
+        ],
     )
