@@ -38,7 +38,7 @@ async def _set_commands(app: Application) -> None:
     await app.bot.set_my_commands([
         BotCommand("chat",    "Explore ideas with AI"),
         BotCommand("process", "Process content (paste text or upload a file)"),
-        BotCommand("analyze", "Analyze messages since the last tag"),
+        BotCommand("analyze", "Analyze accumulated messages (chat uses current session)"),
         BotCommand("tag",     "Place a marker at the current position"),
         BotCommand("history", "Last 10 processed records"),
         BotCommand("show",    "View full record by ID"),

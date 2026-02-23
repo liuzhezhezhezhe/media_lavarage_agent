@@ -51,12 +51,17 @@ User input (text / file / conversation)
          │
          ▼
   ┌─────────────┐
-  │   Analyze   │  LLM call #1 — evaluates type, novelty, clarity, risk, publishability
+  │   Analyze   │  LLM call #1 — outputs global metrics + per-platform assessments
   └──────┬──────┘
          │
          ▼
   ┌─────────────┐
-  │    Route    │  Pure function — picks platforms based on idea_type + novelty_score
+  │    Route    │  Pure function — picks candidate platforms via idea_type + novelty_score
+  └──────┬──────┘
+         │
+         ▼
+  ┌─────────────┐
+  │   Filter    │  Keep only platforms marked publishable in platform assessments
   └──────┬──────┘
          │
          ▼
@@ -213,6 +218,11 @@ Bot:  📊 Analysis Results
       Type: opinion | Novelty: 8/10 | Clarity: 7/10 | Risk: low | Publishable: ✅
       💡 Summary: ...
       📌 Recommended platforms: X → Medium
+       🧭 Platform Assessments:
+       - X ✅ | N:8/10 | C:8/10 | Risk: low
+       - Medium ✅ | N:7/10 | C:7/10 | Risk: low
+       - Substack ❌ | N:5/10 | C:5/10 | Risk: medium
+       - Reddit ✅ | N:7/10 | C:6/10 | Risk: low
 Bot:  🐦 X  [tweet content]
 Bot:  📝 Medium  [article]
 ```
@@ -226,7 +236,7 @@ You:  /tag my AI writing discussion
 You:  [chat normally — messages are stored silently]
 You:  /analyze
 Bot:  🔍 Reading 5 message(s) after marker "my AI writing discussion"…
-Bot:  [analysis + platform versions]
+Bot:  [analysis + platform assessments + platform versions]
 ```
 
 ### Flow 3 — Chat mode
@@ -243,7 +253,7 @@ You:  [multi-turn conversation]
 
 You:  /analyze   ← processes this chat session transcript (user + assistant), saves results, exits chat mode
 Bot:  🔍 Analyzing conversation…
-Bot:  [analysis + platform versions]
+Bot:  [analysis + platform assessments + platform versions]
 ```
 
 > `/analyze` in chat mode analyzes only messages generated in that chat session.

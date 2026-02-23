@@ -24,6 +24,7 @@ def format_analysis(analysis: dict, thought_id: int) -> str:
     publishable = analysis.get("publishable", False)
     summary = analysis.get("summary", "")
     recommended = analysis.get("recommended_platforms", [])
+    platform_assessments = analysis.get("platform_assessments", [])
 
     pub_icon = "✅" if publishable else "❌"
     platforms_str = " → ".join(p.capitalize() for p in recommended) if recommended else "N/A"
@@ -45,6 +46,28 @@ def format_analysis(analysis: dict, thought_id: int) -> str:
         f"📌 Recommended platforms: *{escape(platforms_str)}*",
         f"_\\(Record ID: {thought_id} — full version: /show {thought_id}\\)_",
     ]
+
+    if isinstance(platform_assessments, list) and platform_assessments:
+        lines.extend(["", "🧭 *Platform Assessments*"])
+        for item in platform_assessments:
+            if not isinstance(item, dict):
+                continue
+            platform = str(item.get("platform", "")).strip().lower()
+            if not platform:
+                continue
+            allowed = bool(item.get("publishable", False))
+            icon = "✅" if allowed else "❌"
+            novelty_p = int(item.get("novelty_score") or 0)
+            clarity_p = int(item.get("clarity_score") or 0)
+            risk_p = str(item.get("risk_level", "unknown"))
+            reason = str(item.get("reason", "")).strip()
+
+            lines.append(
+                f"- *{escape(platform.capitalize())}* {icon} \\| N:{novelty_p}/10 \\| C:{clarity_p}/10 \\| Risk: `{escape(risk_p)}`"
+            )
+            if reason:
+                lines.append(f"  _{escape(reason)}_")
+
     return "\n".join(lines)
 
 

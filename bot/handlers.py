@@ -141,28 +141,94 @@ async def _run_pipeline(
         async with _typing(context, cid):
             analysis = await analyze(content, llm)
 
-        # Route: decide platforms (always run so format_analysis can display them)
-        platforms = route(analysis)
-        analysis["recommended_platforms"] = platforms
+        # Route: decide candidate platforms by type/novelty
+        candidate_platforms = route(analysis)
+        platform_assessments = analysis.get("platform_assessments")
+        platform_decisions: dict[str, bool] = {}
+        platform_assessment_map: dict[str, dict] = {}
 
-        # Non-publishable: save analysis, show result, skip rewrite
+        if isinstance(platform_assessments, list):
+            normalized_assessments = []
+            for item in platform_assessments:
+                if not isinstance(item, dict):
+                    continue
+                platform = str(item.get("platform", "")).strip().lower()
+                if not platform:
+                    continue
+                publishable = bool(item.get("publishable", False))
+                reason = str(item.get("reason", "")).strip()
+                novelty_score = int(item.get("novelty_score") or 0)
+                clarity_score = int(item.get("clarity_score") or 0)
+                risk_level = str(item.get("risk_level", "unknown")).strip().lower() or "unknown"
+                summary = str(item.get("summary", "")).strip()
+                key_points = item.get("key_points")
+                if not isinstance(key_points, list):
+                    key_points = []
+                normalized_key_points = [str(p).strip() for p in key_points if str(p).strip()]
+
+                platform_decisions[platform] = publishable
+                platform_assessment_map[platform] = {
+                    "platform": platform,
+                    "novelty_score": novelty_score,
+                    "clarity_score": clarity_score,
+                    "publishable": publishable,
+                    "risk_level": risk_level,
+                    "summary": summary,
+                    "key_points": normalized_key_points,
+                    "reason": reason,
+                }
+                normalized_assessments.append({
+                    "platform": platform,
+                    "novelty_score": novelty_score,
+                    "clarity_score": clarity_score,
+                    "publishable": publishable,
+                    "risk_level": risk_level,
+                    "summary": summary,
+                    "key_points": normalized_key_points,
+                    "reason": reason,
+                })
+            if normalized_assessments:
+                analysis["platform_assessments"] = normalized_assessments
+
+        # Global publishability is a coarse gate; platform_assessments refines it.
         if not analysis.get("publishable"):
+            platforms: list[str] = []
+        elif platform_decisions:
+            platforms = []
+            for platform in candidate_platforms:
+                allowed = platform_decisions.get(platform)
+                # Backward compatible: missing key keeps the candidate platform.
+                if allowed is False:
+                    continue
+                platforms.append(platform)
+        else:
+            platforms = candidate_platforms
+
+        analysis["recommended_platforms"] = platforms
+        analysis["publishable"] = bool(platforms)
+
+        # Non-publishable (global or all platforms filtered out): save and skip rewrite
+        if not platforms:
             thought_id = db.save_thought(user_id, content, source, analysis)
             await status_msg.delete()
             analysis_msg = formatter.format_analysis(analysis, thought_id)
             await update.message.reply_text(analysis_msg, parse_mode=ParseMode.MARKDOWN_V2)
             return True
 
-        # Publishable but no platforms (defensive)
-        if not platforms:
-            await status_msg.edit_text("⚠️ No recommended platforms for this content. Pipeline stopped.")
-            return False
-
         # LLM call #2+: rewrite for each platform
         platform_outputs: dict[str, str] = {}
         for platform in platforms:
+            platform_analysis = dict(analysis)
+            platform_assessment = platform_assessment_map.get(platform)
+            if platform_assessment:
+                platform_analysis["novelty_score"] = platform_assessment.get("novelty_score", platform_analysis.get("novelty_score"))
+                platform_analysis["clarity_score"] = platform_assessment.get("clarity_score", platform_analysis.get("clarity_score"))
+                platform_analysis["risk_level"] = platform_assessment.get("risk_level", platform_analysis.get("risk_level"))
+                platform_analysis["summary"] = platform_assessment.get("summary") or platform_analysis.get("summary", "")
+                platform_analysis["key_points"] = platform_assessment.get("key_points") or platform_analysis.get("key_points", [])
+
             async with _typing(context, cid):
-                platform_outputs[platform] = await rewrite(content, platform, analysis, llm)
+                platform_outputs[platform] = await rewrite(content, platform, platform_analysis, llm)
 
         # Save to DB
         thought_id = db.save_thought(user_id, content, source, analysis)
@@ -209,7 +275,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "*Content*\n"
         "/chat \\- Explore ideas with AI \\(use /analyze afterward to publish\\)\n"
         "/process \\- Process mode \\(paste text or upload a file\\)\n"
-        "/analyze \\- Analyze messages since the last tag\n"
+        "/analyze \\- Analyze accumulated messages \\(chat uses current session\\)\n"
         "/tag \\[label\\] \\- Place a marker at the current position\n\n"
         "*Records*\n"
         "/history \\- Last 10 processed records\n"

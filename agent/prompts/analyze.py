@@ -64,6 +64,27 @@ FIELD DEFINITIONS & SCORING CRITERIA
   false — Raw stream-of-consciousness, no central claim, missing evidence for
           assertions made, or contains content too private/sensitive to publish.
 
+"platform_assessments"  (array of exactly 4 objects, one per platform)
+  Each object must include:
+  - "platform" (string): one of "x", "medium", "substack", "reddit"
+  - "novelty_score" (integer 1–10): platform-specific novelty fit
+  - "clarity_score" (integer 1–10): platform-specific clarity/readiness
+  - "publishable" (boolean): whether this content is suitable for that platform
+  - "risk_level" (string): one of "low", "medium", "high"
+  - "summary" (string, max 120 chars): platform-oriented core angle
+  - "key_points" (array of 2–4 strings): platform-oriented supporting points
+  - "reason" (string, max 80 chars): concise rationale for publishable judgment
+
+  Rules:
+  - Evaluate each platform independently based on raw material quality and risk.
+  - A platform can be true even if another is false.
+  - Include each platform exactly once.
+  - If uncertain, prefer false for that specific platform.
+
+Top-level fields are still required for backward compatibility, but they should
+represent an overall aggregate view. Platform-level decisions should be made
+from platform_assessments.
+
 "risk_level"  (string — choose exactly one)
   "low"    — Personal opinion, educational content, professional insight, creative
              work. No named parties harmed; no regulated-domain advice.
