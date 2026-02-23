@@ -482,17 +482,47 @@ async def cmd_chat_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     return ConversationHandler.END
 
 
+# ── conversation exit helpers ─────────────────────────────────────────────────
+# PTB consumes updates handled by a ConversationHandler fallback, so the other
+# ConversationHandler's entry point will never see them. For cross-mode commands
+# (/process from chat, /chat from process) we exit the current mode and prompt
+# the user to re-send. For same-direction commands (/tag, /analyze) we execute
+# the handler inline and then end the conversation.
+
 async def _chat_exit_tag(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Execute /tag and exit chat mode."""
     context.user_data.pop("chat_history", None)
     await cmd_tag(update, context)
     return ConversationHandler.END
 
 
 async def _chat_exit_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Execute /analyze and exit chat mode."""
     context.user_data.pop("chat_history", None)
     await cmd_analyze(update, context)
+    return ConversationHandler.END
+
+
+async def _chat_exit_process(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data.pop("chat_history", None)
+    await update.message.reply_text(
+        "Chat mode ended. Send /process to start processing."
+    )
+    return ConversationHandler.END
+
+
+async def _process_exit_tag(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await cmd_tag(update, context)
+    return ConversationHandler.END
+
+
+async def _process_exit_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await cmd_analyze(update, context)
+    return ConversationHandler.END
+
+
+async def _process_exit_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await update.message.reply_text(
+        "Process mode ended. Send /chat to start chat mode."
+    )
     return ConversationHandler.END
 
 
@@ -508,7 +538,12 @@ def build_process_conversation() -> ConversationHandler:
                 MessageHandler(~filters.COMMAND, process_invalid_input),
             ],
         },
-        fallbacks=[CommandHandler("cancel", cmd_cancel)],
+        fallbacks=[
+            CommandHandler("cancel", cmd_cancel),
+            CommandHandler("tag", _process_exit_tag),
+            CommandHandler("analyze", _process_exit_analyze),
+            CommandHandler("chat", _process_exit_chat),
+        ],
     )
 
 
@@ -524,5 +559,6 @@ def build_chat_conversation() -> ConversationHandler:
             CommandHandler("cancel", cmd_chat_cancel),
             CommandHandler("tag", _chat_exit_tag),
             CommandHandler("analyze", _chat_exit_analyze),
+            CommandHandler("process", _chat_exit_process),
         ],
     )
