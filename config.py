@@ -35,5 +35,10 @@ class Settings(BaseSettings):
     db_path: str = "~/.media_agent/memory.db"
     users_config: str = "config/users.json"
 
+    # Rate limit
+    rate_limit_window_seconds: int = Field(default=60, ge=1)
+    rate_limit_pipeline_per_window: int = Field(default=6, ge=1)
+    rate_limit_chat_per_window: int = Field(default=20, ge=1)
+
 
 settings = Settings()

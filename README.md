@@ -39,6 +39,7 @@ Medium article, Substack newsletter, or Reddit post.
 - **File upload** — `.txt` / `.md` / `.json` / `.csv`, up to 20 MB
 - **History** — retrieve any past record with `/show <id>`
 - **Hot-reload allowlist** — add or remove users in `config/users.json` without restarting
+- **Basic rate limiting** — per-user request caps for chat and processing flows
 - **Multi-LLM** — Anthropic Claude, OpenAI, GitHub Copilot (unofficial), or any custom endpoint
 
 ---
@@ -141,6 +142,11 @@ COPILOT_MODEL=gpt-4o
 # Storage
 DB_PATH=~/.media_agent/memory.db
 USERS_CONFIG=config/users.json
+
+# Rate limit (per user)
+RATE_LIMIT_WINDOW_SECONDS=60
+RATE_LIMIT_PIPELINE_PER_WINDOW=6
+RATE_LIMIT_CHAT_PER_WINDOW=20
 ```
 
 ### `config/users.json`
@@ -168,13 +174,26 @@ Changes take effect immediately — no bot restart required.
 | `/help` | Everyone | Show all commands |
 | `/status` | Everyone | LLM config, record count, auth status |
 | `/whoami` | Everyone | Your Telegram user ID |
-| `/chat` | Authorized | Explore ideas with AI; use `/analyze` afterward |
-| `/tag [label]` | Authorized | Place a marker at the current position |
-| `/analyze` | Authorized | Analyze messages since the latest tag (or today's) |
-| `/process` | Authorized | Process mode — paste text or upload a file |
-| `/cancel` | Authorized | Exit current mode |
+| `/chat` | Authorized | Enter chat mode — explore ideas with AI |
+| `/process` | Authorized | Enter process mode — paste text or upload a file |
+| `/tag [label]` | Authorized | Place a marker; exits any active mode |
+| `/analyze` | Authorized | Analyze accumulated messages and exit mode; data is preserved |
+| `/cancel` | Authorized | Exit any active mode and **discard** accumulated session data |
 | `/history` | Authorized | Last 10 processed records |
 | `/show <id>` | Authorized | Full analysis and platform outputs for a record |
+
+### Mode behaviour
+
+The bot has two interactive modes — **chat** (`/chat`) and **process** (`/process`). Inside
+either mode, the following rules apply:
+
+| Action | Result |
+|--------|--------|
+| `/analyze` | Runs the pipeline on accumulated messages, then exits the mode. Session data is **kept** until analysis completes, then cleaned up. |
+| `/cancel` | Exits the mode immediately. All unsaved session data is **discarded**. |
+| `/tag` | Places a marker and exits the mode. Accumulated data since the last tag is **discarded**. |
+| `/process` (in chat mode) | Switches directly to process mode. Chat session data is **discarded**. |
+| `/chat` (in process mode) | Switches directly to chat mode. |
 
 ---
 
@@ -216,11 +235,19 @@ Have a back-and-forth with the AI to develop an idea, then convert it.
 
 ```
 You:  /chat
-Bot:  Chat mode active. Explore your ideas freely.
+Bot:  💬 Chat mode active. Explore your ideas freely.
+      Use /analyze when done — it processes the conversation and exits.
+      Use /tag to mark and exit. Use /cancel to discard and exit.
+
 You:  [multi-turn conversation]
-You:  /cancel
-You:  /analyze   ← turns the whole conversation into publishable content
+
+You:  /analyze   ← processes the conversation, saves results, exits chat mode
+Bot:  🔍 Analyzing conversation…
+Bot:  [analysis + platform versions]
 ```
+
+> `/cancel` exits chat mode and **discards** all messages from the session.
+> Switching to `/process` mid-chat also discards the chat session.
 
 ### File upload
 

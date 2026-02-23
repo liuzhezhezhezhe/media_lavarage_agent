@@ -27,14 +27,15 @@ def _parse_json(raw: str) -> dict:
         match = re.search(r"\{.*\}", cleaned, re.DOTALL)
         if match:
             return json.loads(match.group())
-        # Return safe defaults so the pipeline doesn't crash
+        # Return fail-closed defaults so malformed model output is never
+        # treated as publishable content.
         return {
             "idea_type": "essay",
-            "novelty_score": 5,
-            "clarity_score": 5,
-            "publishable": True,
-            "risk_level": "low",
-            "summary": raw[:150],
-            "recommended_platforms": ["x", "medium"],
+            "novelty_score": 0,
+            "clarity_score": 0,
+            "publishable": False,
+            "risk_level": "unknown",
+            "summary": "Analysis parsing failed. Please retry.",
+            "recommended_platforms": [],
             "key_points": [],
         }

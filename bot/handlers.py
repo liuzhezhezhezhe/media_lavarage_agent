@@ -1,8 +1,10 @@
 """All Telegram command and message handlers."""
 import asyncio
 import logging
+from collections import deque
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from time import monotonic
 from telegram import Update
 from telegram.constants import ChatAction, ParseMode
 from telegram.ext import (
@@ -14,6 +16,7 @@ from telegram.ext import (
 )
 
 import db
+from config import settings
 from bot.auth import auth
 from bot import formatter
 from bot.file_parser import parse_file
@@ -28,6 +31,16 @@ logger = logging.getLogger(__name__)
 # ConversationHandler states
 WAITING_CONTENT = 1
 CHATTING = 2
+
+_RATE_LIMIT_WINDOW_SECONDS = settings.rate_limit_window_seconds
+_RATE_LIMIT_PIPELINE_PER_WINDOW = settings.rate_limit_pipeline_per_window
+_RATE_LIMIT_CHAT_PER_WINDOW = settings.rate_limit_chat_per_window
+
+_GENERIC_PIPELINE_ERR = "❌ Processing failed. Please try again shortly."
+_GENERIC_FILE_ERR = "❌ File parsing failed. Please try again later."
+_GENERIC_CHAT_ERR = "❌ Chat failed temporarily. Please try again later."
+
+_rate_limit_buckets: dict[tuple[int, str], deque[float]] = {}
 
 
 @asynccontextmanager
@@ -78,6 +91,30 @@ def _is_auth(update: Update) -> bool:
     return auth.is_authorized(_uid(update))
 
 
+def _check_rate_limit(user_id: int, action: str, limit: int) -> tuple[bool, int]:
+    """Return (allowed, retry_after_seconds) for user-action pair."""
+    now = monotonic()
+    key = (user_id, action)
+    bucket = _rate_limit_buckets.setdefault(key, deque())
+    window_start = now - _RATE_LIMIT_WINDOW_SECONDS
+
+    while bucket and bucket[0] <= window_start:
+        bucket.popleft()
+
+    if len(bucket) >= limit:
+        retry_after = int(_RATE_LIMIT_WINDOW_SECONDS - (now - bucket[0])) + 1
+        return False, max(retry_after, 1)
+
+    bucket.append(now)
+    return True, 0
+
+
+async def _deny_rate_limit(update: Update, retry_after_seconds: int) -> None:
+    await update.message.reply_text(
+        f"⏳ Too many requests. Please retry in about {retry_after_seconds}s."
+    )
+
+
 async def _deny(update: Update) -> None:
     uid = _uid(update)
     await update.message.reply_text(
@@ -92,7 +129,7 @@ async def _run_pipeline(
     user_id: int,
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
-) -> None:
+) -> bool:
     """Core pipeline: analyze → route → rewrite → save → send."""
     status_msg = await update.message.reply_text("🔍 Analyzing, please wait…")
 
@@ -114,12 +151,12 @@ async def _run_pipeline(
             await status_msg.delete()
             analysis_msg = formatter.format_analysis(analysis, thought_id)
             await update.message.reply_text(analysis_msg, parse_mode=ParseMode.MARKDOWN_V2)
-            return
+            return True
 
         # Publishable but no platforms (defensive)
         if not platforms:
             await status_msg.edit_text("⚠️ No recommended platforms for this content. Pipeline stopped.")
-            return
+            return False
 
         # LLM call #2+: rewrite for each platform
         platform_outputs: dict[str, str] = {}
@@ -145,9 +182,12 @@ async def _run_pipeline(
             msg_text, _ = formatter.format_platform_output(platform, output_content, thought_id)
             await update.message.reply_text(msg_text, parse_mode=ParseMode.MARKDOWN_V2)
 
+        return True
+
     except Exception as exc:
         logger.exception("Pipeline error")
-        await status_msg.edit_text(f"❌ Processing failed: {exc}")
+        await status_msg.edit_text(_GENERIC_PIPELINE_ERR)
+        return False
 
 
 # ── /start ────────────────────────────────────────────────────────────────────
@@ -254,6 +294,11 @@ async def cmd_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     uid = _uid(update)
     cid = _cid(update)
 
+    allowed, retry_after = _check_rate_limit(uid, "pipeline", _RATE_LIMIT_PIPELINE_PER_WINDOW)
+    if not allowed:
+        await _deny_rate_limit(update, retry_after)
+        return
+
     tag = db.get_latest_tag(uid, cid)
     if tag:
         messages = db.get_messages_since_tag(uid, cid, tag["created_at"])
@@ -276,7 +321,13 @@ async def cmd_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         f"🔍 Reading {len(messages)} message(s) {source_desc}…"
     )
 
-    await _run_pipeline(content, "tag_analyze", uid, update, context)
+    pipeline_ok = await _run_pipeline(content, "tag_analyze", uid, update, context)
+
+    if not pipeline_ok:
+        await update.message.reply_text(
+            "⚠️ Analyze failed, retained message data and marker so you can retry /analyze."
+        )
+        return
 
     # Clean up consumed data so a subsequent /analyze starts fresh.
     if tag:
@@ -311,6 +362,11 @@ async def process_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return WAITING_CONTENT
 
     uid = _uid(update)
+    allowed, retry_after = _check_rate_limit(uid, "pipeline", _RATE_LIMIT_PIPELINE_PER_WINDOW)
+    if not allowed:
+        await _deny_rate_limit(update, retry_after)
+        return WAITING_CONTENT
+
     await _run_pipeline(content, "text", uid, update, context)
     return ConversationHandler.END
 
@@ -343,12 +399,17 @@ async def process_file_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return WAITING_CONTENT
     except Exception as e:
         logger.exception("File download/parse error")
-        await status_msg.edit_text(f"❌ File parsing failed: {e}")
+        await status_msg.edit_text(_GENERIC_FILE_ERR)
         return WAITING_CONTENT
 
     await status_msg.delete()
 
     uid = _uid(update)
+    allowed, retry_after = _check_rate_limit(uid, "pipeline", _RATE_LIMIT_PIPELINE_PER_WINDOW)
+    if not allowed:
+        await _deny_rate_limit(update, retry_after)
+        return WAITING_CONTENT
+
     await _run_pipeline(content, "file", uid, update, context)
     return ConversationHandler.END
 
@@ -361,7 +422,8 @@ async def process_invalid_input(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text("Exited process mode.")
+    _discard_chat_session(update, context)
+    await update.message.reply_text("Cancelled.")
     return ConversationHandler.END
 
 
@@ -460,6 +522,11 @@ async def chat_handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     cid = _cid(update)
     mid = update.message.message_id
 
+    allowed, retry_after = _check_rate_limit(uid, "chat", _RATE_LIMIT_CHAT_PER_WINDOW)
+    if not allowed:
+        await _deny_rate_limit(update, retry_after)
+        return CHATTING
+
     # Store to DB so /analyze can access this conversation later
     db.save_chat_message(uid, cid, mid, user_text)
 
@@ -473,7 +540,7 @@ async def chat_handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         reply = response.content
     except Exception as exc:
         logger.exception("Chat LLM error")
-        await update.message.reply_text(f"❌ Error: {exc}")
+        await update.message.reply_text(_GENERIC_CHAT_ERR)
         return CHATTING
 
     history.append({"role": "assistant", "content": reply})
@@ -493,14 +560,6 @@ def _discard_chat_session(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     context.user_data.pop("chat_history", None)
     if session_start:
         db.delete_messages_since(_uid(update), _cid(update), session_start)
-
-
-# ── universal /cancel ─────────────────────────────────────────────────────────
-
-async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    _discard_chat_session(update, context)
-    await update.message.reply_text("Cancelled.")
-    return ConversationHandler.END
 
 
 # ── state-transition handlers ─────────────────────────────────────────────────
