@@ -66,6 +66,20 @@ def init_db() -> None:
 
 # ── chat_messages ─────────────────────────────────────────────────────────────
 
+def delete_tag(tag_id: int) -> None:
+    with get_conn() as conn:
+        conn.execute("DELETE FROM tags WHERE id=?", (tag_id,))
+
+
+def delete_messages_up_to(user_id: int, chat_id: int, up_to: str) -> None:
+    """Delete all chat messages up to and including the given timestamp."""
+    with get_conn() as conn:
+        conn.execute(
+            "DELETE FROM chat_messages WHERE user_id=? AND chat_id=? AND created_at<=?",
+            (user_id, chat_id, up_to),
+        )
+
+
 def delete_messages_since(user_id: int, chat_id: int, since: str) -> None:
     """Delete chat messages accumulated since a given ISO timestamp.
 

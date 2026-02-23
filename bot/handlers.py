@@ -271,11 +271,17 @@ async def cmd_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     content = "\n\n".join(m["content"] for m in messages)
+    last_message_time = messages[-1]["created_at"]
     await update.message.reply_text(
         f"🔍 Reading {len(messages)} message(s) {source_desc}…"
     )
 
     await _run_pipeline(content, "tag_analyze", uid, update, context)
+
+    # Clean up consumed data so a subsequent /analyze starts fresh.
+    if tag:
+        db.delete_tag(tag["id"])
+    db.delete_messages_up_to(uid, cid, last_message_time)
 
 
 # ── /process (ConversationHandler) ───────────────────────────────────────────
