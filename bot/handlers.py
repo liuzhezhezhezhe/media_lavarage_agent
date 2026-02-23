@@ -293,6 +293,7 @@ async def cmd_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     uid = _uid(update)
     cid = _cid(update)
+    session_start = context.user_data.get("chat_session_start")
 
     allowed, retry_after = _check_rate_limit(uid, "pipeline", _RATE_LIMIT_PIPELINE_PER_WINDOW)
     if not allowed:
@@ -300,7 +301,10 @@ async def cmd_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     tag = db.get_latest_tag(uid, cid)
-    if tag:
+    if session_start:
+        messages = db.get_messages_since_tag(uid, cid, session_start)
+        source_desc = "from the current /chat session"
+    elif tag:
         messages = db.get_messages_since_tag(uid, cid, tag["created_at"])
         tag_label = tag.get("label") or "(no label)"
         source_desc = f'after marker "{tag_label}"'
@@ -321,15 +325,22 @@ async def cmd_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         f"🔍 Reading {len(messages)} message(s) {source_desc}…"
     )
 
-    pipeline_ok = await _run_pipeline(content, "tag_analyze", uid, update, context)
+    analyze_source = "chat_session" if session_start else "tag_analyze"
+    pipeline_ok = await _run_pipeline(content, analyze_source, uid, update, context)
 
     if not pipeline_ok:
         await update.message.reply_text(
-            "⚠️ Analyze failed, retained message data and marker so you can retry /analyze."
+            "⚠️ Analyze failed; retained messages so you can retry /analyze."
         )
         return
 
     # Clean up consumed data so a subsequent /analyze starts fresh.
+    if session_start:
+        db.delete_messages_since(uid, cid, session_start)
+        context.user_data.pop("chat_session_start", None)
+        context.user_data.pop("chat_history", None)
+        return
+
     if tag:
         db.delete_tag(tag["id"])
     db.delete_messages_up_to(uid, cid, last_message_time)
@@ -528,7 +539,7 @@ async def chat_handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         return CHATTING
 
     # Store to DB so /analyze can access this conversation later
-    db.save_chat_message(uid, cid, mid, user_text)
+    db.save_chat_message(uid, cid, mid, f"User: {user_text}")
 
     history: list[dict] = context.user_data.setdefault("chat_history", [])
     history.append({"role": "user", "content": user_text})
@@ -544,7 +555,8 @@ async def chat_handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         return CHATTING
 
     history.append({"role": "assistant", "content": reply})
-    await update.message.reply_text(reply)
+    bot_message = await update.message.reply_text(reply)
+    db.save_chat_message(uid, cid, bot_message.message_id, f"Assistant: {reply}")
     return CHATTING
 
 
@@ -585,8 +597,6 @@ async def _exit_tag_from_chat(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def _exit_analyze_from_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     # /analyze is the only exit that keeps the data — do not discard.
-    context.user_data.pop("chat_session_start", None)
-    context.user_data.pop("chat_history", None)
     await cmd_analyze(update, context)
     return ConversationHandler.END
 

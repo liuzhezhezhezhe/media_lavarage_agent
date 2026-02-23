@@ -177,7 +177,7 @@ Changes take effect immediately — no bot restart required.
 | `/chat` | Authorized | Enter chat mode — explore ideas with AI |
 | `/process` | Authorized | Enter process mode — paste text or upload a file |
 | `/tag [label]` | Authorized | Place a marker; exits any active mode |
-| `/analyze` | Authorized | Analyze accumulated messages and exit mode; data is preserved |
+| `/analyze` | Authorized | Analyze accumulated messages and exit mode; in `/chat`, analyzes the current session transcript |
 | `/cancel` | Authorized | Exit any active mode and **discard** accumulated session data |
 | `/history` | Authorized | Last 10 processed records |
 | `/show <id>` | Authorized | Full analysis and platform outputs for a record |
@@ -189,7 +189,7 @@ either mode, the following rules apply:
 
 | Action | Result |
 |--------|--------|
-| `/analyze` | Runs the pipeline on accumulated messages, then exits the mode. Session data is **kept** until analysis completes, then cleaned up. |
+| `/analyze` | Runs the pipeline on accumulated messages, then exits the mode. In `/chat`, only the current session transcript (**user + assistant**) is analyzed. Session data is **kept** until analysis completes, then cleaned up. |
 | `/cancel` | Exits the mode immediately. All unsaved session data is **discarded**. |
 | `/tag` | Places a marker and exits the mode. Accumulated data since the last tag is **discarded**. |
 | `/process` (in chat mode) | Switches directly to process mode. Chat session data is **discarded**. |
@@ -241,11 +241,12 @@ Bot:  💬 Chat mode active. Explore your ideas freely.
 
 You:  [multi-turn conversation]
 
-You:  /analyze   ← processes the conversation, saves results, exits chat mode
+You:  /analyze   ← processes this chat session transcript (user + assistant), saves results, exits chat mode
 Bot:  🔍 Analyzing conversation…
 Bot:  [analysis + platform versions]
 ```
 
+> `/analyze` in chat mode analyzes only messages generated in that chat session.
 > `/cancel` exits chat mode and **discards** all messages from the session.
 > Switching to `/process` mid-chat also discards the chat session.
 
@@ -345,7 +346,7 @@ media_lavarage_agent/
 |-------|-------------|
 | `thoughts` | One row per processed item; all analysis fields |
 | `outputs` | Platform-specific content, linked to `thoughts` |
-| `chat_messages` | Stored plain messages (used by `/analyze`) |
+| `chat_messages` | Stored chat transcript messages (user + assistant, used by `/analyze`) |
 | `tags` | Marker records |
 
 ---
