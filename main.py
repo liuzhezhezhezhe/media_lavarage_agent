@@ -20,6 +20,7 @@ from bot.handlers import (
     cmd_whoami,
     cmd_tag,
     cmd_analyze,
+    cmd_style,
     cmd_history,
     cmd_show,
     cmd_clear,
@@ -41,6 +42,7 @@ async def _set_commands(app: Application) -> None:
         BotCommand("process", "Process content (paste text or upload a file)"),
         BotCommand("analyze", "Analyze accumulated messages (chat uses current session)"),
         BotCommand("tag",     "Place a marker at the current position"),
+        BotCommand("style",   "Set your personal rewrite style"),
         BotCommand("history", "Last 10 processed records"),
         BotCommand("show",    "View full record by ID"),
         BotCommand("clear",   "Clear all your stored data"),
@@ -94,6 +96,7 @@ def main() -> None:
     app.add_handler(CommandHandler("whoami", cmd_whoami))
     app.add_handler(CommandHandler("tag", cmd_tag))
     app.add_handler(CommandHandler("analyze", cmd_analyze))
+    app.add_handler(CommandHandler("style", cmd_style))
     app.add_handler(CommandHandler("history", cmd_history))
     app.add_handler(CommandHandler("show", cmd_show))
     app.add_handler(CommandHandler("clear", cmd_clear))

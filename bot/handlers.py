@@ -42,6 +42,7 @@ _RATE_LIMIT_CHAT_PER_WINDOW = settings.rate_limit_chat_per_window
 _GENERIC_PIPELINE_ERR = "❌ Processing failed. Please try again shortly."
 _GENERIC_FILE_ERR = "❌ File parsing failed. Please try again later."
 _GENERIC_CHAT_ERR = "❌ Chat failed temporarily. Please try again later."
+_MAX_REWRITE_STYLE_CHARS = 800
 
 _rate_limit_buckets: dict[tuple[int, str], deque[float]] = {}
 _NETWORK_RETRY_ATTEMPTS = 3
@@ -272,6 +273,7 @@ async def _run_pipeline(
 
         # LLM call #2+: rewrite for each platform
         platform_outputs: dict[str, str] = {}
+        user_style = db.get_user_rewrite_style(user_id)
         for platform in platforms:
             platform_analysis = dict(analysis)
             platform_assessment = platform_assessment_map.get(platform)
@@ -284,7 +286,7 @@ async def _run_pipeline(
 
             async with _typing(context, cid):
                 platform_outputs[platform] = await _with_network_retry(
-                    lambda: rewrite(content, platform, platform_analysis, llm),
+                    lambda: rewrite(content, platform, platform_analysis, llm, user_style=user_style),
                     f"Rewrite call ({platform})",
                 )
 
@@ -347,6 +349,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/show \\<id\\> \\- View full analysis and platform outputs for a record\n\n"
         "/clear \\- Clear all your stored data\n\n"
         "*Other*\n"
+        "/style \\[text\\] \\- Set your personal rewrite style \\(or view current with /style\\)\n"
         "/status \\- Show bot status and configuration\n"
         "/whoami \\- Show your Telegram ID\n"
         "/cancel \\- Exit current mode"
@@ -394,6 +397,49 @@ async def cmd_whoami(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         "Share this ID with the admin to request access."
     )
     await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+
+
+# ── /style ────────────────────────────────────────────────────────────────────
+
+async def cmd_style(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_auth(update):
+        await _deny(update)
+        return
+
+    uid = _uid(update)
+    if not context.args:
+        style = db.get_user_rewrite_style(uid)
+        if style:
+            await update.message.reply_text(
+                "🎨 Current rewrite style:\n\n"
+                f"{style}\n\n"
+                "Use /style <new style> to update, or /style clear to remove it."
+            )
+        else:
+            await update.message.reply_text(
+                "No custom rewrite style set.\n"
+                "Use /style <your preferred style> to set one."
+            )
+        return
+
+    raw_input = " ".join(context.args).strip()
+    if raw_input.lower() in {"clear", "reset", "none"}:
+        deleted = db.clear_user_rewrite_style(uid)
+        if deleted:
+            await update.message.reply_text("✅ Custom rewrite style cleared.")
+        else:
+            await update.message.reply_text("No custom rewrite style to clear.")
+        return
+
+    if len(raw_input) > _MAX_REWRITE_STYLE_CHARS:
+        await update.message.reply_text(
+            f"Style is too long ({len(raw_input)} chars). "
+            f"Please keep it within {_MAX_REWRITE_STYLE_CHARS} characters."
+        )
+        return
+
+    db.set_user_rewrite_style(uid, raw_input)
+    await update.message.reply_text("✅ Rewrite style saved. It will apply to future rewrites.")
 
 
 # ── /tag ──────────────────────────────────────────────────────────────────────
@@ -598,7 +644,8 @@ async def cmd_clear(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "🧹 Cleared all your stored data.\n"
         f"thoughts: {deleted['thoughts']}, outputs: {deleted['outputs']}, "
-        f"messages: {deleted['chat_messages']}, tags: {deleted['tags']}"
+        f"messages: {deleted['chat_messages']}, tags: {deleted['tags']}, "
+        f"styles: {deleted['user_preferences']}"
     )
 
 
@@ -775,6 +822,16 @@ async def _exit_clear_from_process(update: Update, context: ContextTypes.DEFAULT
     return ConversationHandler.END
 
 
+async def _style_in_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await cmd_style(update, context)
+    return CHATTING
+
+
+async def _style_in_process(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await cmd_style(update, context)
+    return WAITING_CONTENT
+
+
 # ── build ConversationHandler ─────────────────────────────────────────────────
 
 def build_conversation() -> ConversationHandler:
@@ -792,6 +849,7 @@ def build_conversation() -> ConversationHandler:
         states={
             WAITING_CONTENT: [
                 CommandHandler("chat",    _process_to_chat),
+                CommandHandler("style",   _style_in_process),
                 CommandHandler("tag",     _exit_tag_from_process),
                 CommandHandler("analyze", _exit_analyze_from_process),
                 CommandHandler("clear",   _exit_clear_from_process),
@@ -801,6 +859,7 @@ def build_conversation() -> ConversationHandler:
             ],
             CHATTING: [
                 CommandHandler("process", _chat_to_process),
+                CommandHandler("style",   _style_in_chat),
                 CommandHandler("tag",     _exit_tag_from_chat),
                 CommandHandler("analyze", _exit_analyze_from_chat),
                 CommandHandler("clear",   _exit_clear_from_chat),

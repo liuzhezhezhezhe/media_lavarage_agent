@@ -234,6 +234,7 @@ USER_TEMPLATE = """Original content:
 
 Analysis summary: {summary}
 Key points: {key_points}
+User custom style preference: {style_instruction}
 
 {platform_instruction}
 

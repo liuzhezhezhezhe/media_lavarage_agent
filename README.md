@@ -182,6 +182,7 @@ Changes take effect immediately — no bot restart required.
 | `/chat` | Authorized | Enter chat mode — explore ideas with AI |
 | `/process` | Authorized | Enter process mode — paste text or upload a file |
 | `/tag [label]` | Authorized | Place a marker; exits any active mode |
+| `/style [text]` | Authorized | Set your personal rewrite style; `/style` to view, `/style clear` to remove |
 | `/analyze` | Authorized | Analyze accumulated messages and exit mode; in `/chat`, analyzes the current session transcript |
 | `/cancel` | Authorized | Exit any active mode and **discard** accumulated session data |
 | `/history` | Authorized | Last 10 processed records |

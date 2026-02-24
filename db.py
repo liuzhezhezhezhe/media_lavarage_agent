@@ -61,6 +61,12 @@ def init_db() -> None:
                 label       TEXT,
                 created_at  TEXT    NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS user_preferences (
+                user_id       INTEGER PRIMARY KEY,
+                rewrite_style TEXT,
+                updated_at    TEXT    NOT NULL
+            );
         """)
 
 
@@ -140,6 +146,42 @@ def get_latest_tag(user_id: int, chat_id: int) -> Optional[dict]:
             (user_id, chat_id),
         ).fetchone()
     return dict(row) if row else None
+
+
+# ── user_preferences ──────────────────────────────────────────────────────────
+
+def get_user_rewrite_style(user_id: int) -> Optional[str]:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT rewrite_style FROM user_preferences WHERE user_id=?",
+            (user_id,),
+        ).fetchone()
+    if not row:
+        return None
+    style = row[0]
+    return style if style else None
+
+
+def set_user_rewrite_style(user_id: int, style: str) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO user_preferences (user_id, rewrite_style, updated_at)
+               VALUES (?,?,?)
+               ON CONFLICT(user_id) DO UPDATE SET
+                 rewrite_style=excluded.rewrite_style,
+                 updated_at=excluded.updated_at""",
+            (user_id, style, now),
+        )
+
+
+def clear_user_rewrite_style(user_id: int) -> int:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "DELETE FROM user_preferences WHERE user_id=?",
+            (user_id,),
+        )
+    return cur.rowcount or 0
 
 
 # ── thoughts + outputs ────────────────────────────────────────────────────────
@@ -247,10 +289,15 @@ def clear_user_data(user_id: int) -> dict[str, int]:
             "DELETE FROM tags WHERE user_id=?",
             (user_id,),
         )
+        cur_preferences = conn.execute(
+            "DELETE FROM user_preferences WHERE user_id=?",
+            (user_id,),
+        )
 
     return {
         "thoughts": cur_thoughts.rowcount or 0,
         "outputs": outputs_deleted,
         "chat_messages": cur_messages.rowcount or 0,
         "tags": cur_tags.rowcount or 0,
+        "user_preferences": cur_preferences.rowcount or 0,
     }
