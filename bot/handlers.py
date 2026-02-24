@@ -249,8 +249,20 @@ async def _run_pipeline(
         if not analysis.get("publishable"):
             platforms: list[str] = []
         elif platform_decisions:
+            ordered_candidates = list(candidate_platforms)
+
+            # If platform assessments include additional platforms that route() omitted,
+            # append them in the assessment order so publishable ones are not skipped.
+            for item in analysis.get("platform_assessments", []):
+                if not isinstance(item, dict):
+                    continue
+                platform = str(item.get("platform", "")).strip().lower()
+                if not platform or platform in ordered_candidates:
+                    continue
+                ordered_candidates.append(platform)
+
             platforms = []
-            for platform in candidate_platforms:
+            for platform in ordered_candidates:
                 allowed = platform_decisions.get(platform)
                 # Backward compatible: missing key keeps the candidate platform.
                 if allowed is False:
