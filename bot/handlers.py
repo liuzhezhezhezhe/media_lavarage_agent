@@ -345,6 +345,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "*Records*\n"
         "/history \\- Last 10 processed records\n"
         "/show \\<id\\> \\- View full analysis and platform outputs for a record\n\n"
+        "/clear \\- Clear all your stored data\n\n"
         "*Other*\n"
         "/status \\- Show bot status and configuration\n"
         "/whoami \\- Show your Telegram ID\n"
@@ -582,6 +583,25 @@ async def cmd_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN_V2)
 
 
+# ── /clear ───────────────────────────────────────────────────────────────────
+
+async def cmd_clear(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_auth(update):
+        await _deny(update)
+        return
+
+    uid = _uid(update)
+    deleted = db.clear_user_data(uid)
+    context.user_data.pop("chat_session_start", None)
+    context.user_data.pop("chat_history", None)
+
+    await update.message.reply_text(
+        "🧹 Cleared all your stored data.\n"
+        f"thoughts: {deleted['thoughts']}, outputs: {deleted['outputs']}, "
+        f"messages: {deleted['chat_messages']}, tags: {deleted['tags']}"
+    )
+
+
 # ── /show <id> ────────────────────────────────────────────────────────────────
 
 async def cmd_show(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -745,6 +765,16 @@ async def _exit_analyze_from_process(update: Update, context: ContextTypes.DEFAU
     return ConversationHandler.END
 
 
+async def _exit_clear_from_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await cmd_clear(update, context)
+    return ConversationHandler.END
+
+
+async def _exit_clear_from_process(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await cmd_clear(update, context)
+    return ConversationHandler.END
+
+
 # ── build ConversationHandler ─────────────────────────────────────────────────
 
 def build_conversation() -> ConversationHandler:
@@ -764,6 +794,7 @@ def build_conversation() -> ConversationHandler:
                 CommandHandler("chat",    _process_to_chat),
                 CommandHandler("tag",     _exit_tag_from_process),
                 CommandHandler("analyze", _exit_analyze_from_process),
+                CommandHandler("clear",   _exit_clear_from_process),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, process_text_input),
                 MessageHandler(filters.Document.ALL,            process_file_input),
                 MessageHandler(~filters.COMMAND,                process_invalid_input),
@@ -772,6 +803,7 @@ def build_conversation() -> ConversationHandler:
                 CommandHandler("process", _chat_to_process),
                 CommandHandler("tag",     _exit_tag_from_chat),
                 CommandHandler("analyze", _exit_analyze_from_chat),
+                CommandHandler("clear",   _exit_clear_from_chat),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, chat_handle_message),
             ],
         },

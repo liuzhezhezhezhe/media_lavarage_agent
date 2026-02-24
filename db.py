@@ -212,3 +212,45 @@ def get_thought_with_outputs(thought_id: int, user_id: int) -> Optional[dict]:
             (thought_id,),
         ).fetchall()
     return {"thought": dict(thought), "outputs": [dict(o) for o in outputs]}
+
+
+def clear_user_data(user_id: int) -> dict[str, int]:
+    """Delete all records related to a specific user.
+
+    Returns deletion counters by table.
+    """
+    with get_conn() as conn:
+        thought_ids_rows = conn.execute(
+            "SELECT id FROM thoughts WHERE user_id=?",
+            (user_id,),
+        ).fetchall()
+        thought_ids = [row[0] for row in thought_ids_rows]
+
+        outputs_deleted = 0
+        if thought_ids:
+            placeholders = ",".join("?" for _ in thought_ids)
+            cur_outputs = conn.execute(
+                f"DELETE FROM outputs WHERE thought_id IN ({placeholders})",
+                thought_ids,
+            )
+            outputs_deleted = cur_outputs.rowcount or 0
+
+        cur_thoughts = conn.execute(
+            "DELETE FROM thoughts WHERE user_id=?",
+            (user_id,),
+        )
+        cur_messages = conn.execute(
+            "DELETE FROM chat_messages WHERE user_id=?",
+            (user_id,),
+        )
+        cur_tags = conn.execute(
+            "DELETE FROM tags WHERE user_id=?",
+            (user_id,),
+        )
+
+    return {
+        "thoughts": cur_thoughts.rowcount or 0,
+        "outputs": outputs_deleted,
+        "chat_messages": cur_messages.rowcount or 0,
+        "tags": cur_tags.rowcount or 0,
+    }

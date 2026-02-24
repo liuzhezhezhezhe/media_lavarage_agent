@@ -22,6 +22,7 @@ from bot.handlers import (
     cmd_analyze,
     cmd_history,
     cmd_show,
+    cmd_clear,
     handle_plain_message,
     build_conversation,
 )
@@ -42,6 +43,7 @@ async def _set_commands(app: Application) -> None:
         BotCommand("tag",     "Place a marker at the current position"),
         BotCommand("history", "Last 10 processed records"),
         BotCommand("show",    "View full record by ID"),
+        BotCommand("clear",   "Clear all your stored data"),
         BotCommand("status",  "Show bot status"),
         BotCommand("help",    "Show all commands"),
         BotCommand("whoami",  "Show your Telegram ID"),
@@ -94,6 +96,7 @@ def main() -> None:
     app.add_handler(CommandHandler("analyze", cmd_analyze))
     app.add_handler(CommandHandler("history", cmd_history))
     app.add_handler(CommandHandler("show", cmd_show))
+    app.add_handler(CommandHandler("clear", cmd_clear))
 
     # Plain text messages (store silently for authorized users)
     app.add_handler(
