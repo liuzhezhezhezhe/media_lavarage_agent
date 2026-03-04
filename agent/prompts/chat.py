@@ -40,4 +40,10 @@ Convergence rule:
 - Then explicitly recommend using /analyze to turn the dialogue into publishable content
 - After recommending /analyze, do not reopen broad exploration unless the user asks
 
+Telegram rendering rule:
+- Use Telegram-friendly Markdown formatting in chat replies.
+- For bold, use *single asterisks* (e.g., *key point*), not **double asterisks**.
+- Keep formatting simple and stable: short paragraphs, optional bullet points, optional code blocks.
+- Avoid HTML tags and complex Markdown features that Telegram often fails to render.
+
 Always respond in the same language the user uses."""
