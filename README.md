@@ -8,7 +8,7 @@
 [![python-telegram-bot](https://img.shields.io/badge/python--telegram--bot-20%2B-blue)](https://python-telegram-bot.org/)
 
 Send a rough idea, paste a conversation, or upload a file — the bot analyzes the content,
-decides which platforms it suits, and generates a tailored version for each: X thread,
+decides which platforms it suits, and generates a tailored version for each: X post(s),
 Medium article, Substack newsletter, or Reddit post.
 
 ---
@@ -37,7 +37,7 @@ Medium article, Substack newsletter, or Reddit post.
 - **Multi-platform rewriting** — routes to best-fit platforms and generates a tailored version for each
 - **Tag system** — mark a conversation point, then batch-analyze everything after it
 - **File upload** — `.txt` / `.md` / `.json` / `.csv`, up to 20 MB
-- **History** — retrieve any past record with `/show <id>`
+- **History** — retrieve any past record with `/show <id>` or `/show <id> <platform>`
 - **Hot-reload allowlist** — add or remove users in `config/users.json` without restarting
 - **Basic rate limiting** — per-user request caps for chat and processing flows
 - **Multi-LLM** — Anthropic Claude, OpenAI, GitHub Copilot (unofficial), or any custom endpoint
@@ -183,10 +183,10 @@ Changes take effect immediately — no bot restart required.
 | `/process` | Authorized | Enter process mode — paste text or upload a file |
 | `/tag [label]` | Authorized | Place a marker; exits any active mode |
 | `/style [text]` | Authorized | Set your personal rewrite style; `/style` to view, `/style clear` to remove |
-| `/analyze` | Authorized | Analyze accumulated messages and exit mode; in `/chat`, analyzes the current session transcript |
+| `/analyze` | Authorized | Analyze accumulated messages and exit mode; then show conclusion + generated platforms (details via `/show`) |
 | `/cancel` | Authorized | Exit any active mode and **discard** accumulated session data |
 | `/history` | Authorized | Last 10 processed records |
-| `/show <id>` | Authorized | Full analysis and platform outputs for a record |
+| `/show <id> [platform]` | Authorized | Full record; optional platform filter (`x`, `medium`, `substack`, `reddit`, case-insensitive) |
 | `/clear` | Authorized | Clear all your stored data (thoughts, outputs, messages, tags) |
 
 ### Mode behaviour
@@ -196,12 +196,18 @@ either mode, the following rules apply:
 
 | Action | Result |
 |--------|--------|
-| `/analyze` | Runs the pipeline on accumulated messages, then exits the mode. In `/chat`, only the current session transcript (**user + assistant**) is analyzed. Session data is **kept** until analysis completes, then cleaned up. |
+| `/analyze` | Runs the pipeline on accumulated messages, then exits the mode. In `/chat`, only the current session transcript (**user + assistant**) is analyzed. The bot returns analysis + generated platform summary (not full rewrites); use `/show <id> [platform]` for details. Session data is **kept** until analysis completes, then cleaned up. |
 | `/cancel` | Exits the mode immediately. All unsaved session data is **discarded**. |
 | `/tag` | Places a marker and exits the mode. Accumulated data since the last tag is **discarded**. |
 | `/clear` | Clears all your stored data and exits the mode. |
 | `/process` (in chat mode) | Switches directly to process mode. Chat session data is **discarded**. |
 | `/chat` (in process mode) | Switches directly to chat mode. |
+
+### `/show` examples
+
+- `/show 42` → show full record 42 (all platforms)
+- `/show 42 x` → only X output
+- `/show 42 Medium` → only Medium output (`platform` is case-insensitive)
 
 ---
 
@@ -226,8 +232,11 @@ Bot:  📊 Analysis Results
        - Medium ✅ | N:7/10 | C:7/10 | Risk: low
        - Substack ❌ | N:5/10 | C:5/10 | Risk: medium
        - Reddit ✅ | N:7/10 | C:6/10 | Risk: low
-Bot:  🐦 X  [tweet content]
-Bot:  📝 Medium  [article]
+Bot:  ✅ Rewrite completed
+       结论/总结: ...
+       已生成平台: x, medium
+       查看全部: /show <id>
+       查看单个平台: /show <id> x
 ```
 
 ### Flow 2 — Tag system
@@ -239,7 +248,7 @@ You:  /tag my AI writing discussion
 You:  [chat normally — messages are stored silently]
 You:  /analyze
 Bot:  🔍 Reading 5 message(s) after marker "my AI writing discussion"…
-Bot:  [analysis + platform assessments + platform versions]
+Bot:  [analysis + generated platform summary + /show guidance]
 ```
 
 ### Flow 3 — Chat mode
@@ -256,7 +265,7 @@ You:  [multi-turn conversation]
 
 You:  /analyze   ← processes this chat session transcript (user + assistant), saves results, exits chat mode
 Bot:  🔍 Analyzing conversation…
-Bot:  [analysis + platform assessments + platform versions]
+Bot:  [analysis + generated platform summary + /show guidance]
 ```
 
 > `/analyze` in chat mode analyzes only messages generated in that chat session.
