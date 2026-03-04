@@ -15,6 +15,43 @@ async def rewrite(
         f"Write content optimized for {platform}.",
     )
     key_points = analysis.get("key_points", [])
+    if platform == "x" and len(key_points) >= 2:
+        platform_instruction += (
+            "\n\nRUNTIME PRIORITY FOR THIS INPUT:\n"
+            "- The source contains multiple key points. Prefer 2–5 standalone tweets"
+            " separated by a line containing only '---'.\n"
+            "- Do not write them as a dependency thread; each tweet must work on its own.\n"
+            "- Set PostType to TWEET_PACK unless a true THREAD is necessary."
+        )
+    if platform == "x":
+        platform_instruction += (
+            "\n\nRUNTIME OUTPUT CONTRACT (strict):\n"
+            "- First non-empty line must be: PostType: TWEET or PostType: TWEET_PACK or PostType: THREAD.\n"
+            "- Then one blank line, then post content.\n"
+            "- If PostType is TWEET_PACK or THREAD, separate each post with a line containing only '---'."
+        )
+    if platform == "medium":
+        platform_instruction += (
+            "\n\nRUNTIME OUTPUT CONTRACT (strict):\n"
+            "- Start with exactly four labeled lines in this order:\n"
+            "  Title: ...\n"
+            "  Subtitle: ...\n"
+            "  Topics: ...\n"
+            "  CanonicalURL: ...\n"
+            "- Then add one blank line, then the full body content.\n"
+            "- Do not omit any of the four labels, and do not rename labels."
+        )
+    if platform == "substack":
+        platform_instruction += (
+            "\n\nRUNTIME OUTPUT CONTRACT (strict):\n"
+            "- Start with exactly four labeled lines in this order:\n"
+            "  Title: ...\n"
+            "  Subtitle: ...\n"
+            "  EmailSubject: ...\n"
+            "  Tags: ...\n"
+            "- Then add one blank line, then the full body content.\n"
+            "- Do not omit any of the four labels, and do not rename labels."
+        )
     key_points_str = "\n".join(f"- {p}" for p in key_points) if key_points else "(none extracted)"
     style_instruction = (user_style or "").strip() or "(none)"
 

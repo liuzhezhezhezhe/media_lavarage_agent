@@ -50,9 +50,17 @@ FORMAT
 - Default to a single tweet (strictly ≤280 characters; URLs count as 23 chars).
 - For single tweet, target 100–220 characters when possible; do not force over-compression.
 - Keep single tweet to 1–3 short sentences; avoid long clause chains.
-- Use a thread only when a single tweet would lose essential meaning.
+- If there are multiple distinct viewpoints/angles, prefer multiple standalone tweets over one thread.
+- Multi-tweet pack format: 2–5 standalone tweets separated by a line containing only "---".
+- Each tweet in a multi-tweet pack must be independently understandable (no "1/", "2/", "continued", or cross-tweet dependency).
+- Use a thread only when ideas are tightly coupled and splitting into standalone tweets would break essential logic.
 - Thread format (only when necessary): 3–6 tweets separated by a line containing only "---".
 - If using thread, tweet 1 must stand alone and carry the core claim by itself.
+- Output contract (required):
+  PostType: TWEET | TWEET_PACK | THREAD
+  <blank line>
+  <post content>
+  If PostType is TWEET_PACK or THREAD, separate each post with a line containing only "---".
 
 PROPAGATION PLAYBOOK (creator-oriented)
 - Lead with one strong claim in the first line; avoid warm-up preface.
@@ -60,6 +68,7 @@ PROPAGATION PLAYBOOK (creator-oriented)
 - Prefer quotable phrasing and clear nouns over abstract jargon.
 - If adding a link, keep the main post self-sufficient; place heavy context in a follow-up reply when useful.
 - Favor discussable edges (a clear stance with one caveat) over neutral summaries.
+- For multi-viewpoint source material, decompose into separate strong takes; avoid stitching weakly related claims into one long chain.
 
 COMPLIANCE BASELINE (must follow)
 - Do not engage in platform manipulation, spam, or inauthentic amplification behavior.
@@ -105,6 +114,14 @@ FORMAT
 - Length: 600–1500 words is the sweet spot for curation; under 400 words rarely qualifies.
 - Use ## subheadings to break up the text — they aid readability and curation review.
 - End with a clear, actionable takeaway or reflection — not a call to subscribe or follow.
+- Output structure (required, Medium-aligned):
+  Title: <one line>
+  Subtitle: <one line; optional in Medium UI but always provide>
+  Topics: <1-5 comma-separated topics>
+  CanonicalURL: <URL or NONE>
+
+  <blank line>
+  <full article body>
 
 MEDIUM DISTRIBUTION TIERS (what the content must qualify for)
 - Network Only: baseline, no curation needed.
@@ -173,6 +190,14 @@ FORMAT
 - Length: 500–1200 words. Shorter than 300 words feels thin; longer than 1500
   risks incomplete reads before the email client clips the message.
 - End with a genuine question or reflection that invites replies — not a generic CTA.
+- Output structure (required, Substack-aligned):
+  Title: <post title>
+  Subtitle: <one line subtitle>
+  EmailSubject: <email subject line; may equal Title>
+  Tags: <0-5 comma-separated tags>
+
+  <blank line>
+  <full newsletter body>
 
 SUBJECT LINE RULES (email deliverability — inbox vs spam folder)
 The subject line passes through spam filters before readers ever see it. Violations
